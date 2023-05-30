@@ -1,0 +1,333 @@
+<html>
+<head>
+    <link href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css" rel="stylesheet">
+    <title>Image Reconstruction using Regularized Least Squares</title>
+    <style>
+
+        .container {
+            position: relative;
+            width: 512px;
+            height: 512px;
+            margin: 24px auto;
+        }
+
+        canvas {
+            position: absolute;
+        }
+
+        #imageCanvas {
+            z-index: 0;
+        }
+
+        #eraserCanvas {
+            z-index: 1;
+        }
+
+        input {
+            width: 100%;
+        }
+
+        .blinking {
+            /*
+             go between 0.3 and 0.7 opacity every 0.5s, with a bg of black
+             */
+            animation: blink 1s infinite ease-in-out;
+            background-color: black;
+        }
+
+        @keyframes blink {
+            0% {
+                opacity: 0.2;
+            }
+            50% {
+                opacity: 0.6;
+            }
+            100% {
+                opacity: 0.2;
+            }
+        }
+    </style>
+</head>
+<body>
+<button onclick="window.location.href = '/';">Back to homepage</button>
+<h1>Image Reconstruction using Regularized Least Squares</h1>
+<p style="text-align: center">
+<div class="container">
+    <canvas height="512" id="imageCanvas" width="512"></canvas>
+    <canvas height="512" id="eraserCanvas" width="512"></canvas>
+</div>
+<h4>Change eraser radius: <span id="eraserRadiusStatus">10px</span></h4>
+<input id="eraserRadius" max="50" min="1" oninput="onChangeEraserRadius()" step="1" type="range" value="10">
+<h4>Change regularization parameter: <span id="regularizationParameterStatus">0.1</span></h4>
+<input id="regularizationParameter" max="1" min="0" oninput="onChangeRegularizationParameter()" step="0.01"
+       type="range" value="0.1">
+<h4>Remove % of pixels: <span id="removePixelsStatus">0</span></h4>
+<input id="removePixels" max="100" min="0" oninput="onChangeRemovePixels()" step="1" type="range" value="0">
+<button
+        onclick="removePixels()">Remove pixels
+</button>
+<form action="/lsq" enctype="multipart/form-data" method="post">
+    <input id="fileToUpload" name="fileToUpload" onchange="uploadImage()" type="file">
+    <span id="fileToUploadStatus" style="color: red"></span>
+</form>
+<button onclick="sendImageForReconstruction()">Reconstruct image</button>
+</p>
+<!-- Upload image to editor. Do not leave the page, this will be handled by javascript. -->
+<sub>
+    Upload an image to use reconstruction tools on it. Larger images will be resized to 512x512 pixels. Only .jpg and
+    .png
+    images are supported.
+</sub>
+<footer>If this still says "loading" after about 10 seconds it means that the image processing server is currently
+    offline to conserve bandwidth and compute capacity.
+</footer>
+<script>
+    let imgArray = null;
+    let eraseRadius = 10;
+    let regularizationParameter = 0.1;
+    let pixelsErased = 0;
+
+    // When eraser radius is changed, update the status text.
+    function onChangeEraserRadius() {
+        eraseRadius = document.getElementById("eraserRadius").value;
+        document.getElementById("eraserRadiusStatus").innerHTML = eraseRadius + "px";
+    }
+
+    function onChangeRegularizationParameter() {
+        document.getElementById("regularizationParameterStatus").innerHTML = document.getElementById("regularizationParameter").value;
+        regularizationParameter = document.getElementById("regularizationParameter").value;
+    }
+
+    function onChangeRemovePixels() {
+        document.getElementById("removePixelsStatus").innerHTML = document.getElementById("removePixels").value + "%";
+        pixelsErased = document.getElementById("removePixels").value;
+    }
+
+    function reshape(arr, dims) {
+        // Reshape a 1D array into a 2D array.
+        if (arr.length === 0) {
+            return arr;
+        }
+        let rows = dims[0];
+        let cols = dims[1];
+        let newArr = [];
+        for (let i = 0; i < rows; i++) {
+            newArr.push(arr.slice(i * cols, i * cols + cols));
+        }
+        return newArr;
+    }
+
+
+    // Convert image to a 3D array. Dim 1 is the row, dim 2 is the column, dim 3 is the color channel. So image array should be 512x512x3.
+    function imageTo3DArray() {
+        let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        let imgArray = [];
+        for (let i = 0; i < imgData.data.length; i += 4) {
+            // If pixel is transparent, push null, null, null to imgArray.
+            if (imgData.data[i + 3] === 0) {
+                imgArray.push([null, null, null]);
+            } else {
+                imgArray.push([imgData.data[i], imgData.data[i + 1], imgData.data[i + 2]]);
+            }
+        }
+        // Now reshape
+        imgArray = reshape(imgArray, [512, 512, 3]);
+        return imgArray;
+    }
+
+    function arrayToImage() {
+        // For each pixel in imgArray, set the corresponding pixel in imgData to the pixel in imgArray. If an array of three nulls is found, don't change the pixel.
+        for (let i = 0; i < imgArray.length; i++) {
+            for (let j = 0; j < imgArray[i].length; j++) {
+                // Check if all null
+                if (imgArray[i][j] == null) {
+                    continue;
+                }
+                // Set pixel by using ctx.
+                ctx.fillStyle = "rgb(" + imgArray[i][j][0] + "," + imgArray[i][j][1] + "," + imgArray[i][j][2] + ")";
+                ctx.fillRect(i, j, 1, 1);
+            }
+        }
+    }
+
+    // Create a version of arrayToImage but it inputs a 3D array instead of using the global imgArray.
+    function arrayToImageFromArray(imgArray) {
+        // For each pixel in imgArray, set the corresponding pixel in imgData to the pixel in imgArray. If an array of three nulls is found, don't change the pixel.
+        for (let i = 0; i < imgArray.length; i++) {
+            for (let j = 0; j < imgArray[i].length; j++) {
+                // Check if all null
+                if (imgArray[i][j] == null) {
+                    continue;
+                }
+                // Set pixel by using ctx.
+                ctx.fillStyle = "rgb(" + imgArray[i][j][0] + "," + imgArray[i][j][1] + "," + imgArray[i][j][2] + ")";
+                ctx.fillRect(i, j, 1, 1);
+            }
+        }
+    }
+
+    // Image example. https://placekitten.com/512/512
+    let canvas = document.getElementById("imageCanvas");
+    let ctx = canvas.getContext("2d");
+    let eraserCanvas = document.getElementById("eraserCanvas");
+    let eraserCtx = eraserCanvas.getContext("2d");
+    let img = new Image();
+    img.src = "https://placekitten.com/512/512";
+    img.crossOrigin = "Anonymous";
+    img.onload = function () {
+        ctx.drawImage(img, 0, 0);
+        imgArray = imageTo3DArray();
+    }
+
+        // Remove pixels from image.
+    function removePixels() {
+        let pixelsToRemove = Math.floor(canvas.height * canvas.width * pixelsErased / 100);
+        if (pixelsToRemove === canvas.height * canvas.width) {
+            alert("You can't remove all the pixels!");
+            return;
+        }
+        console.log("Removing " + pixelsToRemove + " pixels.");
+        let removedPixels = 0;
+        let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        // Choose random pixels to remove, ensuring that the pixel is not already transparent.
+        while (removedPixels < pixelsToRemove) {
+            // If pixel there is already transparent, skip it.
+            let x = Math.floor(Math.random() * canvas.width);
+            let y = Math.floor(Math.random() * canvas.height);
+            if (imgData.data[(y * canvas.width + x) * 4 + 3] === 0) {
+                continue;
+            } else {
+                // Set pixel to transparent.
+                ctx.clearRect(x, y, 1, 1);
+                imgData.data[(y * canvas.width + x) * 4 + 3] = 0;
+                            removedPixels++;
+            }
+        }
+    }
+
+    // Upload image to editor
+    function uploadImage() {
+        let file = document.getElementById("fileToUpload").files[0];
+        let reader = new FileReader();
+        reader.onload = function (e) {
+            img.src = e.target.result;
+            img.onload = function () {
+                // Smaller images will not be accepted
+                if (img.width < 512 || img.height < 512) {
+                    document.getElementById("fileToUploadStatus").innerHTML = "Image must be at least 512x512 pixels.";
+                    return;
+                }
+                // If larger, state that only the first 512x512 pixels will be used
+                if (img.width > 512 || img.height > 512) {
+                    document.getElementById("fileToUploadStatus").innerHTML = "Only the first 512x512 pixels will be used.";
+                }
+                // Wipe canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                // Draw image to canvas
+                ctx.drawImage(img, 0, 0, 512, 512);
+            }
+        }
+        reader.readAsDataURL(file);
+    }
+
+
+    // We will allow users to erase parts of the image by clicking/dragging on the canvas.
+    // This function will be called when the user clicks on the canvas.
+    function startErasing(e) {
+        // Get the mouse position
+        let rect = canvas.getBoundingClientRect();
+        let x = e.clientX - rect.left;
+        let y = e.clientY - rect.top;
+        // Start erasing (circle with set radius
+        // Add event listener for mouse move
+        eraserCanvas.addEventListener("mousemove", erase);
+        // Add event listener for mouse up
+        eraserCanvas.addEventListener("mouseup", stopErasing);
+    }
+
+    // This function will be called when the user moves the mouse while clicking on the canvas.
+    function erase(e) {
+        // Get the mouse position
+        let rect = canvas.getBoundingClientRect();
+        let x = e.clientX - rect.left;
+        let y = e.clientY - rect.top;
+        // Set globalCompositeOperation to destination-out
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.beginPath();
+        ctx.arc(x, y, eraseRadius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
+    }
+
+    // This function will be called when the user stops clicking on the canvas.
+    function stopErasing(e) {
+        // Remove event listener for mouse move
+        eraserCanvas.removeEventListener("mousemove", erase);
+        // Remove event listener for mouse up
+        eraserCanvas.removeEventListener("mouseup", stopErasing);
+    }
+
+    // This function will be called when the user hovers over the canvas (regardless of whether they are clicking or not).
+    function showEraseRadius(e) {
+        // Clear eraserCanvas
+        eraserCtx.clearRect(0, 0, eraserCanvas.width, eraserCanvas.height);
+        // Get the mouse position
+        let rect = canvas.getBoundingClientRect();
+        let x = e.clientX - rect.left;
+        let y = e.clientY - rect.top;
+        // Draw a circle with radius eraseRadius at the mouse position
+        eraserCtx.beginPath();
+        eraserCtx.arc(x, y, eraseRadius, 0, 2 * Math.PI);
+        eraserCtx.strokeStyle = "white";
+        // If mouse down
+        if (e.buttons === 1) {
+            eraserCtx.lineWidth = 5;
+            eraserCtx.strokeStyle = "yellow"
+        } else {
+            eraserCtx.lineWidth = 3;
+        }
+        eraserCtx.stroke();
+    }
+
+    // Attach event listeners to canvas
+    eraserCanvas.addEventListener("mousedown", startErasing);
+    eraserCanvas.addEventListener("mousemove", showEraseRadius);
+
+    // Send image for reconstruction
+    function sendImageForReconstruction() {
+        // Convert imgArray to a base64 string
+        let imgArray = imageTo3DArray();
+        let imgArrayJSON = JSON.stringify(imgArray);
+        let b64 = btoa(imgArrayJSON);
+        // Send it to the endpoint using a post request
+        let xhr = new XMLHttpRequest();
+        xhr.open("POST", "/reconstruct/lsq", true);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.send(JSON.stringify({
+            "imgArray": b64,
+            "regParam": regularizationParameter
+        }));
+        // Add class blinking to canvas
+        canvas.classList.add("blinking");
+        console.log("Sent image to server, added class blinking to canvas.");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                // Get the response
+                let response = JSON.parse(xhr.responseText);
+                // Convert the response to a 3D array
+                let responseArray = JSON.parse(atob(response.imgArray));
+                // Draw the response to the canvas
+                arrayToImageFromArray(responseArray);
+                // Remove class blinking from canvas
+                canvas.classList.remove("blinking");
+                console.log("Removed class blinking from canvas.");
+            } else {
+                console.log("Server responded with status " + xhr.status);
+                // State xhr.readyState
+                console.log("xhr.readyState: " + xhr.readyState);
+            }
+        }
+    }
+</script>
+</body>
+</html>
