@@ -68,7 +68,8 @@
     <input id="fileToUpload" name="fileToUpload" onchange="uploadImage()" type="file">
     <span id="fileToUploadStatus" style="color: red"></span>
 </form>
-<button onclick="sendImageForReconstruction()">Reconstruct image</button>
+<button onclick="sendImageForReconstruction()">Reconstruct image</button><button onclick="downloadImage()">Download image</button>
+
 </p>
 <!-- Upload image to editor. Do not leave the page, this will be handled by javascript. -->
 <sub>
@@ -192,6 +193,13 @@
         // Set black rectangle on eraser canvas.
         eraserCtx.fillStyle = "black";
         eraserCtx.fillRect(0, 0, eraserCanvas.width, eraserCanvas.height);
+    }
+
+    function downloadImage() {
+        let link = document.createElement('a');
+        link.download = 'image.png';
+        link.href = canvas.toDataURL()
+        link.click();
     }
 
         // Remove pixels from image.
