@@ -55,39 +55,12 @@ def img_to_mask(img_color_channel):
 
 
 def lsq_reconstruct(json_obj, regParam):
-    """
-    json_obj is always in this format:
-    [
-      [
-        [red, green, blue],
-        [red, green, blue],
-        ...
-      ],
-      [
-        [red, green, blue],
-        [red, green, blue],
-        ...
-      ],
-      ...
-    ]
-    Sometimes an array can contain [None, None, None], this means that the pixel was removed and we aim to reconstruct it.
-    :param json_obj:
-    :return:
-    """
     new_img = []
     nparray = np.array(json_obj)
     # Split image into RGB channels.
     red, green, blue = splitRGB(nparray)
     # For each color channel, we will create a regularized least squares matrix and solve for the missing pixels.
     for color in [red, green, blue]:
-        """
-        y = A * xt;
-        λ = 0.3
-        Atil, btil =  regularized_ls(A, y, C, λ)
-        x_reg_ls = Atil \ Vector(btil)
-        @show norm(x_reg_ls - xt)
-        Gray.(reshape(x_reg_ls, size(Xt)))
-        """
         Xt = color
         delta = 0.3
         m, n = color.shape

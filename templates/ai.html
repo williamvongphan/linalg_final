@@ -1,7 +1,7 @@
 <html>
 <head>
     <link href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css" rel="stylesheet">
-    <title>Image Reconstruction using LASSO</title>
+    <title>Image Reconstruction using AI</title>
     <style>
 
         .container {
@@ -50,8 +50,8 @@
 </head>
 <body>
 <button onclick="window.location.href = '/';">Back to homepage</button>
-<h1>Image Reconstruction using LASSO</h1>
-<p>This algorithm, while better for clumps of erased pixels, is EXTREMELY SLOW. It will take around 2-3 minutes to reconstruct an image at 512x512. If you would like to pay for my HPC, then please contact me.</p>
+<h1>Image Reconstruction using AI</h1>
+<p>This page uses Stable Diffusion to run inpainting on areas that you mask. This will give you the best results over any other pages here, for obvious reasons.</p>
 <p style="text-align: center">
 <div class="container">
     <canvas height="512" id="imageCanvas" width="512"></canvas>
@@ -59,9 +59,6 @@
 </div>
 <h4>Change eraser radius: <span id="eraserRadiusStatus">10px</span></h4>
 <input id="eraserRadius" max="50" min="1" oninput="onChangeEraserRadius()" step="1" type="range" value="10">
-<h4>Change Alpha: <span id="alphaStatus">0.05</span></h4>
-<input id="alpha" max="100" min="0" oninput="onChangeAlpha()" step="0.01"
-       type="range" value="0.05">
 <h4>Remove % of pixels: <span id="removePixelsStatus">0</span></h4>
 <input id="removePixels" max="100" min="0" oninput="onChangeRemovePixels()" step="1" type="range" value="0">
 <button
@@ -174,11 +171,27 @@
     let eraserCanvas = document.getElementById("eraserCanvas");
     let eraserCtx = eraserCanvas.getContext("2d");
     let img = new Image();
+
+    // Create a new hidden canvas that will contain original image
+    let originalCanvas = document.createElement("canvas");
+    originalCanvas.width = 512;
+    originalCanvas.height = 512;
+    let originalCtx = originalCanvas.getContext("2d");
+
+    // Create a new hidden canvas that will contain the mask, in black and white. black means keep as is, white means erase.
+    let maskCanvas = document.createElement("canvas");
+    maskCanvas.width = 512;
+    maskCanvas.height = 512;
+    let maskCtx = maskCanvas.getContext("2d");
+
     img.src = "https://placekitten.com/512/512";
     img.crossOrigin = "Anonymous";
     img.onload = function () {
         ctx.drawImage(img, 0, 0);
-        imgArray = imageTo3DArray();
+        originalCtx.drawImage(img, 0, 0);
+        // Set black rectangle on eraser canvas.
+        eraserCtx.fillStyle = "black";
+        eraserCtx.fillRect(0, 0, eraserCanvas.width, eraserCanvas.height);
     }
 
         // Remove pixels from image.
@@ -202,7 +215,9 @@
                 // Set pixel to transparent.
                 ctx.clearRect(x, y, 1, 1);
                 imgData.data[(y * canvas.width + x) * 4 + 3] = 0;
-                            removedPixels++;
+                maskCtx.fillStyle = "white";
+                maskCtx.fillRect(x, y, 1, 1);
+                removedPixels++;
             }
         }
     }
@@ -227,6 +242,14 @@
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 // Draw image to canvas
                 ctx.drawImage(img, 0, 0, 512, 512);
+
+                // Set black rectangle on eraser canvas.
+                eraserCtx.fillStyle = "black";
+                eraserCtx.fillRect(0, 0, eraserCanvas.width, eraserCanvas.height);
+
+                // Add image to original canvas
+                eraserCtx.clearRect(0, 0, originalCanvas.width, originalCanvas.height);
+                originalCtx.drawImage(img, 0, 0, 512, 512);
             }
         }
         reader.readAsDataURL(file);
@@ -259,6 +282,12 @@
         ctx.arc(x, y, eraseRadius, 0, 2 * Math.PI);
         ctx.fill();
         ctx.globalCompositeOperation = "source-over";
+
+        // Create a white circle on the mask canvas
+        maskCtx.fillStyle = "white";
+        maskCtx.beginPath();
+        maskCtx.arc(x, y, eraseRadius, 0, 2 * Math.PI);
+        maskCtx.fill();
     }
 
     // This function will be called when the user stops clicking on the canvas.
@@ -296,30 +325,36 @@
     eraserCanvas.addEventListener("mousemove", showEraseRadius);
 
     // Send image for reconstruction
-    function sendImageForReconstruction() {
-        // Convert imgArray to a base64 string
-        let imgArray = imageTo3DArray();
-        let imgArrayJSON = JSON.stringify(imgArray);
-        let b64 = btoa(imgArrayJSON);
-        // Send it to the endpoint using a post request
+    async function sendImageForReconstruction() {
+        // Create a fake form to send the images
+        let form = new FormData();
+        // Add the original image
+        let originalImage = originalCanvas.toDataURL("image/png");
+        let blobbedImage = await (await fetch(originalImage)).blob();
+        form.append("image_file", blobbedImage, "image.png");
+        // Add the mask
+        let mask = maskCanvas.toDataURL("image/png");
+        let blobbedMask = await (await fetch(mask)).blob();
+        form.append("mask_file", blobbedMask, "mask.png");
+        // We're done adding images to the form, now send it to the server
         let xhr = new XMLHttpRequest();
-        xhr.open("POST", "/reconstruct/lasso", true);
-        xhr.setRequestHeader("Content-Type", "application/json");
-        xhr.send(JSON.stringify({
-            "imgArray": b64,
-            "alpha": alpha
-        }));
-        // Add class blinking to canvas
+        xhr.open("POST", "/reconstruct/ai", true);
+        xhr.send(form);
         canvas.classList.add("blinking");
         console.log("Sent image to server, added class blinking to canvas.");
         xhr.onreadystatechange = function () {
             if (xhr.readyState === 4 && xhr.status === 200) {
-                // Get the response
-                let response = JSON.parse(xhr.responseText);
-                // Convert the response to a 3D array
-                let responseArray = JSON.parse(atob(response.imgArray));
-                // Draw the response to the canvas
-                arrayToImageFromArray(responseArray);
+                // Response is image/png, but encoded in base64
+                let response = xhr.responseText;
+                // Create an image element
+                let img = new Image();
+                // Set the source to the response
+                img.src = "data:image/png;base64," + response;
+                // When the image is loaded, draw it to the canvas
+                img.onload = function () {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, 512, 512);
+                }
                 // Remove class blinking from canvas
                 canvas.classList.remove("blinking");
                 console.log("Removed class blinking from canvas.");

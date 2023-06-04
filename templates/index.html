@@ -8,14 +8,47 @@
 <p>Homepage. Choose a page to visit:</p>
 <button onclick="window.location.href = '/lsq';">Regularized Least Squares Reconstruction</button>
 <button onclick="window.location.href = '/lasso';">LASSO Reconstruction</button>
-<button onclick="window.location.href = '/iterlasso';">Iterative LASSO Reconstruction</button>
-<button onclick="window.location.href = '/ai';">DALLE-2 Reconstruction</button>
+<button onclick="window.location.href = '/ai';">Stable Diffusion Reconstruction</button>
 
 <h3>Image server status</h3>
-<p>Loading...</p>
+<p><span>Image server status: </span><span id="status">loading</span></p>
 <footer>If this still says "loading" after about 10 seconds it means that the image processing server is currently
     offline to conserve bandwidth and compute capacity. If the image server status is offline, you will not be able to
     use the image reconstruction tools.
 </footer>
+
+<script>
+    // Set all buttons to be disabled until the image server status is fetched
+    let buttons = document.getElementsByTagName("button");
+    for (let i = 0; i < buttons.length; i++) {
+        buttons[i].disabled = true;
+    }
+
+    // Fetch the image server status (/status)
+    let status = fetch('/status')
+        .then(response => response.json())
+        .then(data => {
+            // If the image server is online, display a green "online" message
+            if (data.status === "OK") {
+                document.getElementById("status").innerHTML = "online";
+                document.getElementById("status").style.color = "green";
+
+                // Enable all buttons
+                for (let i = 0; i < buttons.length; i++) {
+                    buttons[i].disabled = false;
+                }
+            }
+            // If the image server is offline, display a red "offline" message
+            else {
+                document.getElementById("status").innerHTML = "offline";
+                document.getElementById("status").style.color = "red";
+            }
+        })
+        .catch((error) => {
+            // If there is an error, display a red "offline" message
+            document.getElementById("status").innerHTML = "offline";
+            document.getElementById("status").style.color = "red";
+        });
+</script>
 </body>
 </html>
