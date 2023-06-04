@@ -11,13 +11,13 @@ This project explores multiple methods of image reconstruction using linear alge
 
 ## Results
 Original Image
-![Original Image](img/original-50%.png)
+![Original Image](img/original-50.png)
 
 Regularized Least Squares
-![Regularized Least Squares](img/lsq-50%.png)
+![Regularized Least Squares](img/lsq-50.png)
 
 Convex LASSO
-![Convex LASSO](img/lasso-50%.png)
+![Convex LASSO](img/lasso-50.png)
 
 Stable Diffusion
-![AI](img/ai-50%.png)
+![AI](img/ai-50.png)
